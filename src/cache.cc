@@ -13,12 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// #define DEBUG_PRINT
 
 #include "cache.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <iostream>
 #include <iomanip>
 #include <numeric>
 #include <fmt/core.h>
@@ -34,8 +36,14 @@
 
 CACHE::tag_lookup_type::tag_lookup_type(request_type req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me)
+      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me),
+      range_id(req.range_id), size(req.size)
 {
+  // std::cout << "111111";
+  if constexpr (champsim::debug_print) {
+      fmt::print("[CACHE] {} v_address: {} ip: {} range_id: {}\n", __func__, v_address, req.ip, req.range_id);
+      fmt::print("[CACHE] {} v_address: {} ip: {} size: {}\n", __func__, v_address, req.ip, req.size);
+    }
 }
 
 CACHE::mshr_type::mshr_type(tag_lookup_type req, uint64_t cycle)
@@ -184,8 +192,9 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   // update prefetcher on load instructions and prefetches from upper levels
   auto metadata_thru = handle_pkt.pf_metadata;
   if (should_activate_prefetcher(handle_pkt)) {
+    // fmt::print("match_offset_bits: {} OFFSET_BITS: {}\n", match_offset_bits, OFFSET_BITS);
     uint64_t pf_base_addr = (virtual_prefetch ? handle_pkt.v_address : handle_pkt.address) & ~champsim::bitmask(match_offset_bits ? 0 : OFFSET_BITS);
-    metadata_thru = impl_prefetcher_cache_operate(pf_base_addr, handle_pkt.ip, hit, useful_prefetch, champsim::to_underlying(handle_pkt.type), metadata_thru);
+    metadata_thru = impl_prefetcher_cache_operate(pf_base_addr, handle_pkt.ip, handle_pkt.range_id, hit, useful_prefetch, champsim::to_underlying(handle_pkt.type), metadata_thru);
   }
 
   if (hit) {
@@ -284,9 +293,24 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       MSHR.push_back(to_allocate);
       MSHR.back().pf_metadata = fwd_pkt.pf_metadata;
     }
+
+    // ++ip_miss_stats[handle_pkt.ip];
+    if (handle_pkt.range_id != 0) {
+      ++sim_stats.miss_stats[handle_pkt.range_id][handle_pkt.ip];
+      sim_stats.object_ip_miss_history[handle_pkt.range_id][handle_pkt.ip].emplace_back(handle_pkt.address);
+      sim_stats.object_miss_history[handle_pkt.range_id].emplace_back(handle_pkt.address);
+    }
   }
 
   ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
+
+  // // ++ip_miss_stats[handle_pkt.ip];
+  // if (handle_pkt.range_id != 0) {
+  //   ++sim_stats.miss_stats[handle_pkt.range_id][handle_pkt.ip];
+  //   sim_stats.object_ip_miss_history[handle_pkt.range_id][handle_pkt.ip].emplace_back(handle_pkt.address);
+  //   sim_stats.object_miss_history[handle_pkt.range_id].emplace_back(handle_pkt.address);
+  // }
+  // fmt::print("IP: {:#x} missed. Total misses for this IP: {}\n", handle_pkt.ip, sim_stats.ip_miss_stats[handle_pkt.ip]);
 
   return true;
 }
@@ -392,6 +416,7 @@ long CACHE::operate()
 
   // Perform tag checks
   auto do_tag_check = [this](const auto& pkt) {
+    if (pkt.range_id != 0) ++sim_stats.load_stats[pkt.range_id];
     if (this->try_hit(pkt))
       return true;
     if (pkt.type == access_type::WRITE && !this->match_offset_bits)
@@ -709,6 +734,22 @@ void CACHE::end_phase(unsigned finished_cpu)
     roi_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.hits.at(champsim::to_underlying(type)).at(finished_cpu);
     roi_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu) = sim_stats.misses.at(champsim::to_underlying(type)).at(finished_cpu);
   }
+
+  for (const auto& [object_id, load_count] : sim_stats.load_stats) {
+    roi_stats.load_stats[object_id] += load_count;
+  }
+
+  for (const auto& [object_id, miss_count_map] : sim_stats.miss_stats) {
+    for (const auto& [ip, miss_count] : miss_count_map) {
+        roi_stats.miss_stats[object_id][ip] += miss_count;
+    }
+  }
+
+  // roi_stats.load_stats = sim_stats.load_stats;
+  // roi_stats.miss_stats = sim_stats.miss_stats;
+  roi_stats.object_miss_history = sim_stats.object_miss_history; // 直接赋值拷贝
+  roi_stats.object_ip_miss_history = sim_stats.object_ip_miss_history; // 直接赋值拷贝
+
 
   roi_stats.pf_requested = sim_stats.pf_requested;
   roi_stats.pf_issued = sim_stats.pf_issued;

@@ -75,8 +75,89 @@ void champsim::plain_printer::print(CACHE::stats_type stats)
                stats.pf_useful, stats.pf_useless);
 
     fmt::print(stream, "{} AVERAGE MISS LATENCY: {:.4g} cycles\n", stats.name, stats.avg_miss_latency);
+
+    // Print miss statistics
+    // fmt::print(stream, "{} MISS STATISTICS:\n", stats.name);
+    // for (const auto& [ip, miss_count] : stats.ip_miss_stats) {
+    //   fmt::print(stream, "    IP: {:#018x}, MISS COUNT: {:10d}\n", ip, miss_count);
+    // }
+    // Step 2: Create a vector to store total miss counts for each IP
+    std::vector<std::pair<uint64_t, uint64_t>> object_total_misses;
+    uint64_t object_miss_count = 0;
+    uint64_t oneload_miss_count = 0;
+    // Accumulate total miss count for each IP (including its sub-IPs)
+    for (const auto& [object_id, ip_miss_stats] : stats.miss_stats) {
+        uint64_t total_miss_count = 0;
+        for (const auto& [ip, miss_count] : ip_miss_stats) {
+            total_miss_count += miss_count;
+        }
+        object_miss_count += total_miss_count;
+        if (total_miss_count == 1) {
+          oneload_miss_count += total_miss_count;
+        }
+        object_total_misses.emplace_back(object_id, total_miss_count); // Store IP and its total miss count
+    }
+    fmt::print(stream, "{} MISS STATISTICS, OBJECT TOTAL MISS COUNT: {:10d}, OBJECT ONE MISS COUNT: {:10d}\n", stats.name, object_miss_count, oneload_miss_count);
+    // Step 3: Sort IPs by total miss count (in descending order)
+    std::sort(object_total_misses.begin(), object_total_misses.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+
+    // Step 4: Print each IP and its sub-IPs' miss statistics
+    for (const auto& [object_id, total_misses] : object_total_misses) {
+      fmt::print(stream, "    OBJECT_ID: {:10d}, TOTAL MISS COUNT: {:10d}, TOTAL LOAD COUNT: {:10d}\n", object_id, total_misses, stats.load_stats[object_id]);
+    
+      // Print the miss counts for each sub-IP under this object_id
+      for (const auto& [ip, miss_count] : stats.miss_stats[object_id]) {
+          fmt::print(stream, "        IP: {:#018x}, MISS COUNT: {:10d}\n", ip, miss_count);
+      }
+
+      // Print address differences for object_miss_history
+      if (stats.object_miss_history.count(object_id)) {
+          const auto& miss_history = stats.object_miss_history.at(object_id);
+          fmt::print(stream, "    OBJECT_ID: {:10d}, ADDRESS STRIDE: ", object_id);
+          for (size_t i = 1; i < miss_history.size(); ++i) {
+              // fmt::print(stream, "{:10d} ", static_cast<int64_t>(miss_history[i]) - static_cast<int64_t>(miss_history[i - 1]));
+              int64_t prev_cacheline = static_cast<int64_t>(miss_history[i - 1]) / 64;
+              int64_t curr_cacheline = static_cast<int64_t>(miss_history[i]) / 64;
+              
+              // Calculate the difference in cache lines
+              int64_t cacheline_diff = curr_cacheline - prev_cacheline;
+        
+              fmt::print(stream, "{:10d} ", cacheline_diff);
+              if (i % 15 == 0) {
+                fmt::print(stream, "\n");
+              }
+          }
+      }
+      fmt::print(stream, "\n");
+      // Print address differences for object_ip_miss_history
+      if (stats.object_ip_miss_history.count(object_id)) {
+          const auto& ip_miss_history = stats.object_ip_miss_history.at(object_id);
+          fmt::print(stream, "    OBJECT_ID: {:10d}, PER-IP ADDRESS DIFFERENCES:\n", object_id);
+          for (const auto& [ip, ip_history] : ip_miss_history) {
+              fmt::print(stream, "        IP: {:#018x}\n", ip);
+              fmt::print(stream, "            STRIDE: ");
+              for (size_t i = 1; i < ip_history.size(); ++i) {
+                  // fmt::print(stream, "{:10d} ", static_cast<int64_t>(ip_history[i]) - static_cast<int64_t>(ip_history[i - 1]));
+                  int64_t prev_cacheline = static_cast<int64_t>(ip_history[i - 1]) / 64;
+                  int64_t curr_cacheline = static_cast<int64_t>(ip_history[i]) / 64;
+                  
+                  // Calculate the difference in cache lines
+                  int64_t cacheline_diff = curr_cacheline - prev_cacheline;
+                  
+                  fmt::print(stream, "{:10d} ", cacheline_diff);
+                  if (i % 15 == 0) {
+                    fmt::print(stream, "\n");
+                  }
+              }
+              fmt::print(stream, "\n");
+          }
+          fmt::print(stream, "\n");
+      }
+    }
   }
 }
+
 
 void champsim::plain_printer::print(DRAM_CHANNEL::stats_type stats)
 {

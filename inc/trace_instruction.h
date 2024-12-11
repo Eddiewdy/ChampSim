@@ -18,6 +18,7 @@
 #define TRACE_INSTRUCTION_H
 
 #include <limits>
+#include <cstdint>
 
 // special registers that help us identify branches
 namespace champsim
@@ -45,6 +46,12 @@ struct input_instr {
 
   unsigned long long destination_memory[NUM_INSTR_DESTINATIONS]; // output memory
   unsigned long long source_memory[NUM_INSTR_SOURCES];           // input memory
+
+  unsigned long long destination_range_id[NUM_INSTR_DESTINATIONS]; // output range_id
+  unsigned long long source_range_id[NUM_INSTR_SOURCES];           // input range_id
+
+  unsigned long long destination_size[NUM_INSTR_DESTINATIONS]; // output memory object size
+  unsigned long long source_size[NUM_INSTR_SOURCES];           // input memory object size
 };
 
 struct cloudsuite_instr {
@@ -60,6 +67,12 @@ struct cloudsuite_instr {
 
   unsigned long long destination_memory[NUM_INSTR_DESTINATIONS_SPARC]; // output memory
   unsigned long long source_memory[NUM_INSTR_SOURCES];                 // input memory
+
+  unsigned long long destination_range_id[NUM_INSTR_DESTINATIONS]; // output range_id
+  unsigned long long source_range_id[NUM_INSTR_SOURCES];           // input range_id
+
+  unsigned long long destination_size[NUM_INSTR_DESTINATIONS]; // output memory object size
+  unsigned long long source_size[NUM_INSTR_SOURCES];           // input memory object size
 
   unsigned char asid[2];
 };

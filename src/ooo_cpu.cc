@@ -418,11 +418,16 @@ void O3_CPU::do_execution(ooo_model_instr& rob_entry)
 void O3_CPU::do_memory_scheduling(ooo_model_instr& instr)
 {
   // load
-  for (auto& smem : instr.source_memory) {
+  for (size_t i = 0; i < instr.source_memory.size(); ++i) {
+    auto& smem = instr.source_memory[i];
+    uint64_t source_size = instr.source_size[i];
+    uint64_t source_range_id = instr.source_range_id[i];
+    // fmt::print("[O3_CPU load] {} v_address: {} range_id: {} ip: {}\n", __func__, smem, source_range_id, instr.ip);
+    // fmt::print("[O3_CPU load] {} v_address: {} size: {} ip: {}\n", __func__, smem, source_size, instr.ip);
     auto q_entry = std::find_if_not(std::begin(LQ), std::end(LQ), [](const auto& lq_entry) { return lq_entry.has_value(); });
     assert(q_entry != std::end(LQ));
-    q_entry->emplace(instr.instr_id, smem, instr.ip, instr.asid); // add it to the load queue
-
+    q_entry->emplace(instr.instr_id, smem, instr.ip, instr.asid, source_range_id, source_size); // add it to the load queue
+    // q_entry->emplace(instr.instr_id, smem, instr.ip, instr.asid);
     // Check for forwarding
     auto sq_it = std::max_element(std::begin(SQ), std::end(SQ), [smem](const auto& lhs, const auto& rhs) {
       return lhs.virtual_address != smem || (rhs.virtual_address == smem && lhs.instr_id < rhs.instr_id);
@@ -446,9 +451,15 @@ void O3_CPU::do_memory_scheduling(ooo_model_instr& instr)
   }
 
   // store
-  for (auto& dmem : instr.destination_memory)
-    SQ.emplace_back(instr.instr_id, dmem, instr.ip, instr.asid); // add it to the store queue
-
+  for (size_t i = 0; i < instr.destination_memory.size(); ++i) {
+    auto& dmem = instr.destination_memory[i];
+    uint64_t destination_size = instr.destination_size[i];
+    uint64_t destination_range_id = instr.destination_range_id[i];
+    // fmt::print("[O3_CPU store] {} v_address: {} range_id: {} ip: {}\n", __func__, dmem, destination_range_id, instr.ip);
+    // fmt::print("[O3_CPU store] {} v_address: {} size: {} ip: {}\n", __func__, dmem, destination_size, instr.ip);
+    SQ.emplace_back(instr.instr_id, dmem, instr.ip, instr.asid, destination_range_id, destination_size); // add it to the store queue
+    // SQ.emplace_back(instr.instr_id, dmem, instr.ip, instr.asid);
+  }
   if constexpr (champsim::debug_print) {
     fmt::print("[DISPATCH] {} instr_id: {} loads: {} stores: {}\n", __func__, instr.instr_id, std::size(instr.source_memory),
                std::size(instr.destination_memory));
@@ -524,10 +535,13 @@ bool O3_CPU::do_complete_store(const LSQ_ENTRY& sq_entry)
 
 bool O3_CPU::execute_load(const LSQ_ENTRY& lq_entry)
 {
+  // TODO using lq_entry to fill data_packet
   CacheBus::request_type data_packet;
   data_packet.v_address = lq_entry.virtual_address;
   data_packet.instr_id = lq_entry.instr_id;
   data_packet.ip = lq_entry.ip;
+  data_packet.range_id = lq_entry.range_id;
+  data_packet.size = lq_entry.size;
 
   if constexpr (champsim::debug_print) {
     fmt::print("[LQ] {} instr_id: {} vaddr: {:#x}\n", __func__, data_packet.instr_id, data_packet.v_address);
@@ -668,10 +682,15 @@ void O3_CPU::print_deadlock()
 }
 // LCOV_EXCL_STOP
 
-LSQ_ENTRY::LSQ_ENTRY(uint64_t id, uint64_t addr, uint64_t local_ip, std::array<uint8_t, 2> local_asid)
-    : instr_id(id), virtual_address(addr), ip(local_ip), asid(local_asid)
+LSQ_ENTRY::LSQ_ENTRY(uint64_t id, uint64_t addr, uint64_t local_ip, std::array<uint8_t, 2> local_asid, uint64_t local_range_id, uint64_t local_size)
+    : instr_id(id), virtual_address(addr), ip(local_ip), asid(local_asid), range_id(local_range_id), size(local_size)
 {
 }
+
+// LSQ_ENTRY::LSQ_ENTRY(uint64_t id, uint64_t addr, uint64_t local_ip, std::array<uint8_t, 2> local_asid)
+//     : instr_id(id), virtual_address(addr), ip(local_ip), asid(local_asid)
+// {
+// }
 
 void LSQ_ENTRY::finish(std::deque<ooo_model_instr>::iterator begin, std::deque<ooo_model_instr>::iterator end) const
 {

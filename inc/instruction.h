@@ -24,7 +24,11 @@
 #include <limits>
 #include <vector>
 
+#include <fmt/chrono.h>
+#include <fmt/core.h>
+#include <fmt/ranges.h>
 #include "trace_instruction.h"
+#include "champsim.h"
 
 // branch types
 enum branch_type {
@@ -68,6 +72,12 @@ struct ooo_model_instr {
   std::vector<uint64_t> destination_memory = {};
   std::vector<uint64_t> source_memory = {};
 
+  std::vector<uint64_t> destination_range_id = {};
+  std::vector<uint64_t> source_range_id = {};
+
+  std::vector<uint64_t> destination_size = {};
+  std::vector<uint64_t> source_size = {};
+
   // these are indices of instructions in the ROB that depend on me
   std::vector<std::reference_wrapper<ooo_model_instr>> registers_instrs_depend_on_me;
 
@@ -77,9 +87,75 @@ private:
   {
     std::remove_copy(std::begin(instr.destination_registers), std::end(instr.destination_registers), std::back_inserter(this->destination_registers), 0);
     std::remove_copy(std::begin(instr.source_registers), std::end(instr.source_registers), std::back_inserter(this->source_registers), 0);
-    std::remove_copy(std::begin(instr.destination_memory), std::end(instr.destination_memory), std::back_inserter(this->destination_memory), 0);
-    std::remove_copy(std::begin(instr.source_memory), std::end(instr.source_memory), std::back_inserter(this->source_memory), 0);
+    // std::remove_copy(std::begin(instr.destination_memory), std::end(instr.destination_memory), std::back_inserter(this->destination_memory), 0);
+    // std::remove_copy(std::begin(instr.source_memory), std::end(instr.source_memory), std::back_inserter(this->source_memory), 0);
+    // std::remove_copy(std::begin(instr.destination_range_id), std::end(instr.destination_range_id), std::back_inserter(this->destination_range_id), 0);
+    // std::remove_copy(std::begin(instr.source_range_id), std::end(instr.source_range_id), std::back_inserter(this->source_range_id), 0);
+    // std::remove_copy(std::begin(instr.destination_size), std::end(instr.destination_size), std::back_inserter(this->destination_size), 0);
+    // std::remove_copy(std::begin(instr.source_size), std::end(instr.source_size), std::back_inserter(this->source_size), 0);
+    size_t source_memory_size = sizeof(instr.source_memory) / sizeof(instr.source_memory[0]);
+    size_t destination_memory_size = sizeof(instr.destination_memory) / sizeof(instr.destination_memory[0]);
+    for (size_t i = 0; i < destination_memory_size; ++i) {
+        // 如果 memory 不为 0，则保留对应的 range_id 和 size
+        if (instr.destination_memory[i] != 0) {
+            this->destination_memory.push_back(instr.destination_memory[i]);
+            this->destination_range_id.push_back(instr.destination_range_id[i]);
+            this->destination_size.push_back(instr.destination_size[i]);
+        } else {
+            // 如果 memory 为 0，且 range_id 或 size 也为 0，则不保留
+            if (instr.destination_range_id[i] != 0 || instr.destination_size[i] != 0) {
+                this->destination_range_id.push_back(instr.destination_range_id[i]);
+                this->destination_size.push_back(instr.destination_size[i]);
+            }
+        }
+    }
 
+    for (size_t i = 0; i < source_memory_size; ++i) {
+        if (instr.source_memory[i] != 0) {
+            this->source_memory.push_back(instr.source_memory[i]);
+            this->source_range_id.push_back(instr.source_range_id[i]);
+            this->source_size.push_back(instr.source_size[i]);
+        } else {
+            if (instr.source_range_id[i] != 0 || instr.source_size[i] != 0) {
+                this->source_range_id.push_back(instr.source_range_id[i]);
+                this->source_size.push_back(instr.source_size[i]);
+            }
+        }
+    }
+
+
+    if constexpr (champsim::debug_print) {
+      for (unsigned long long value : instr.source_memory) {
+          fmt::print("[INST] {} ip: {} source_memory: {}\n", __func__, instr.ip, value);
+      }
+      for (unsigned long long value : instr.destination_memory) {
+          fmt::print("[INST] {} ip: {} destination_memory: {}\n", __func__, instr.ip, value);
+      }
+      // fmt::print("[INST] {} destination_range_id.size: {}\n", __func__, instr.destination_range_id.size());
+      for (unsigned long long value : instr.destination_range_id) {
+          fmt::print("[INST] {} ip: {} destination_range_id: {}\n", __func__, instr.ip, value);
+      }
+
+      for (unsigned long long value : instr.source_range_id) {
+          fmt::print("[INST] {} ip: {} source_range_id: {}\n", __func__, instr.ip, value);
+      }
+
+      for (unsigned long long value : instr.destination_size) {
+          fmt::print("[INST] {} ip: {} destination_size: {}\n", __func__, instr.ip, value);
+      }
+
+      for (unsigned long long value : instr.source_size) {
+          fmt::print("[INST] {} ip: {} source_size: {}\n", __func__, instr.ip, value);
+      }
+
+      for (unsigned long long value : instr.destination_memory) {
+          fmt::print("[INST] {} ip: {} destination_memory: {}\n", __func__, instr.ip, value);
+      }
+
+      for (unsigned long long value : instr.source_memory) {
+          fmt::print("[INST] {} ip: {} source_memory: {}\n", __func__, instr.ip, value);
+      }
+    }
     bool writes_sp = std::count(std::begin(destination_registers), std::end(destination_registers), champsim::REG_STACK_POINTER);
     bool writes_ip = std::count(std::begin(destination_registers), std::end(destination_registers), champsim::REG_INSTRUCTION_POINTER);
     bool reads_sp = std::count(std::begin(source_registers), std::end(source_registers), champsim::REG_STACK_POINTER);

@@ -37,6 +37,8 @@
 #include "operable.h"
 #include <type_traits>
 
+#include <unordered_map>
+
 struct cache_stats {
   std::string name;
   // prefetch stats
@@ -48,6 +50,11 @@ struct cache_stats {
 
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> hits = {};
   std::array<std::array<uint64_t, NUM_CPUS>, champsim::to_underlying(access_type::NUM_TYPES)> misses = {};
+  std::unordered_map<uint64_t, std::unordered_map<uint64_t, uint64_t>> miss_stats;
+  std::unordered_map<uint64_t, uint64_t> load_stats;
+  std::unordered_map<uint64_t, std::vector<uint64_t>> object_miss_history;
+  std::unordered_map<uint64_t, std::unordered_map<uint64_t, std::vector<uint64_t>>> object_ip_miss_history;
+
 
   double avg_miss_latency = 0;
   uint64_t total_miss_latency = 0;
@@ -85,6 +92,10 @@ class CACHE : public champsim::operable
 
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
+
+    uint64_t range_id = 0;
+
+    uint64_t size = 0;
 
     explicit tag_lookup_type(request_type req) : tag_lookup_type(req, false, false) {}
     tag_lookup_type(request_type req, bool local_pref, bool skip);
@@ -224,7 +235,7 @@ public:
     virtual ~module_concept() = default;
 
     virtual void impl_prefetcher_initialize() = 0;
-    virtual uint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, bool useful_prefetch, uint8_t type, uint32_t metadata_in) = 0;
+    virtual uint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint64_t size, uint8_t cache_hit, bool useful_prefetch, uint8_t type, uint32_t metadata_in) = 0;
     virtual uint32_t impl_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in) = 0;
     virtual void impl_prefetcher_cycle_operate() = 0;
     virtual void impl_prefetcher_final_stats() = 0;
@@ -244,7 +255,7 @@ public:
     explicit module_model(CACHE* cache) : intern_(cache) {}
 
     void impl_prefetcher_initialize();
-    uint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, bool useful_prefetch, uint8_t type, uint32_t metadata_in);
+    uint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint64_t size, uint8_t cache_hit, bool useful_prefetch, uint8_t type, uint32_t metadata_in);
     uint32_t impl_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in);
     void impl_prefetcher_cycle_operate();
     void impl_prefetcher_final_stats();
@@ -261,9 +272,9 @@ public:
   std::unique_ptr<module_concept> module_pimpl;
 
   void impl_prefetcher_initialize() { module_pimpl->impl_prefetcher_initialize(); }
-  uint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, bool useful_prefetch, uint8_t type, uint32_t metadata_in)
+  uint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint64_t size, uint8_t cache_hit, bool useful_prefetch, uint8_t type, uint32_t metadata_in)
   {
-    return module_pimpl->impl_prefetcher_cache_operate(addr, ip, cache_hit, useful_prefetch, type, metadata_in);
+    return module_pimpl->impl_prefetcher_cache_operate(addr, ip, size, cache_hit, useful_prefetch, type, metadata_in);
   }
   uint32_t impl_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in)
   {
